@@ -1,8 +1,8 @@
 streamlit
-scikit-learn==1.2.2
-shap==0.44.1
+scikit-learn>=1.5.0
+shap>=0.44.1
 matplotlib
 pandas
-numpy==1.24.4
+numpy>=1.26.0
 joblib
 openpyxl
