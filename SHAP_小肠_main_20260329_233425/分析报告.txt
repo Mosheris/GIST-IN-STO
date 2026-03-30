@@ -1,0 +1,32 @@
+
+================================================================================
+小肠 RSF 模型 SHAP 分析核心报告 (纯净版)
+================================================================================
+
+分析时间: 2026-03-29 23:37:50
+输出目录: SHAP_小肠_main_20260329_233425
+
+【核心提醒】
+* 核分裂象 (Mitotic Rate) 在生成展示图表前，已自动除以 10 还原为临床真实数值。
+* 图表中的 X 轴 (SHAP Value) 代表对“死亡风险评分 (Risk Score)”的贡献。SHAP > 0 代表推高死亡风险 (预后差)。
+
+【生成的图表】
+1. 01_Summary_Beeswarm.pdf        - 核心全局解释 (蜜蜂群图)
+2. 02_Feature_Importance_Bar.pdf  - 特征重要性条形图
+3. 03_Heatmap.pdf                 - 全样本热力图
+4. 04a/b_Waterfall_*.pdf          - 典型极值患者瀑布图
+5. 05a/b_Force_*.html             - 典型极值患者交互式力图
+
+【特征重要性排序 (基于测试集平均绝对SHAP值)】
+  Age (Years)                             :  12.768993
+  Mitotic Rate (/50 HPF)                  :   5.335666
+  Tumor Size (cm)                         :   3.676429
+  Gender (Male)                           :   2.881383
+  Systemic Treatment                      :   1.348204
+  Marital Status: Married                 :   1.164004
+  Liver Metastasis                        :   0.883349
+  Marital Status: Separated/Divorced/Widowed:   0.876117
+  Race: White                             :   0.727903
+  Race: Asian/Pacific Islander            :   0.682100
+  Marital Status: Single/Unmarried        :   0.479117
+  Race: Black                             :   0.047226

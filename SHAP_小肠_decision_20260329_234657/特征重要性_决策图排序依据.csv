@@ -1,0 +1,13 @@
+Rank,Feature,Mean |SHAP|
+1,Age (Years),12.769803114085722
+2,Mitotic Rate (/50 HPF),5.342810219817222
+3,Tumor Size (cm),3.6773899296713117
+4,Gender (Male),2.882924618117959
+5,Systemic Treatment,1.3541060245897434
+6,Marital Status: Married,1.1651139043545609
+7,Liver Metastasis,0.8826841080403192
+8,Marital Status: Separated/Divorced/Widowed,0.8675437680243667
+9,Race: White,0.7314773178935076
+10,Race: Asian/Pacific Islander,0.6774045851696837
+11,Marital Status: Single/Unmarried,0.4794727916724512
+12,Race: Black,0.049620311845370094
