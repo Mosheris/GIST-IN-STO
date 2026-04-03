@@ -6,3 +6,4 @@ pandas
 numpy>=1.26.0
 joblib
 openpyxl
+scikit-survival
