@@ -11,10 +11,8 @@ import streamlit.components.v1 as components
 
 warnings.filterwarnings("ignore")
 
-
 st.set_page_config(
-    page_title="Gastric / Small Intestine RSF Survival Risk Calculator",
-    page_icon="🧬",
+    page_title="GIST RSF Overall Survival Calculator",
     layout="wide",
 )
 
@@ -41,25 +39,17 @@ st.markdown(
         box-shadow: 0 6px 24px rgba(22, 34, 51, 0.08);
         margin-bottom: 1rem;
     }
-    .high-risk {
-        border-left-color: #d32f2f;
-        background: linear-gradient(180deg, #fff5f5, #ffecec);
+    .higher-risk {
+        border-left-color: #b3261e;
+        background: linear-gradient(180deg, #fff7f7, #fff0f0);
     }
-    .medium-risk {
-        border-left-color: #f57c00;
-        background: linear-gradient(180deg, #fffaf0, #fff4df);
+    .intermediate-risk {
+        border-left-color: #b26a00;
+        background: linear-gradient(180deg, #fffaf2, #fff5e6);
     }
-    .low-risk {
+    .lower-risk {
         border-left-color: #2e7d32;
-        background: linear-gradient(180deg, #f4fff4, #eaf9ea);
-    }
-    .note-box {
-        padding: 0.85rem 1rem;
-        border-radius: 10px;
-        background: #f6f8fb;
-        border: 1px solid #dfe6ee;
-        color: #334155;
-        font-size: 0.95rem;
+        background: linear-gradient(180deg, #f6fff6, #edf9ed);
     }
 </style>
 """,
@@ -68,28 +58,26 @@ st.markdown(
 
 
 MODEL_CONFIGS = {
-    "Gastric": {
-        "title": "Gastric RSF Survival Risk Calculator",
-        "file": "Stomach.pkl",
-        "key_prefix": "stomach",
-        "description": "Individual survival risk assessment for gastric RSF model.",
+    "Gastric GIST": {
+        "title": "Gastric GIST Overall Survival Calculator",
+        "file": "rsf_gastric_gist.pkl",
+        "key_prefix": "gastric",
+        "description": "Site-specific random survival forest model for overall survival estimation.",
     },
-    "Small Intestine": {
-        "title": "Small Intestine RSF Survival Risk Calculator",
-        "file": "Intestine.pkl",
-        "key_prefix": "intestine",
-        "description": "Individual survival risk assessment for small intestine RSF model.",
+    "Small intestinal GIST": {
+        "title": "Small Intestinal GIST Overall Survival Calculator",
+        "file": "rsf_small_intestinal_gist.pkl",
+        "key_prefix": "small_intestinal",
+        "description": "Site-specific random survival forest model for overall survival estimation.",
     },
 }
 
-BASE_FEATURE_LABELS = {
-    "Age": "Age (Years)",
-    "Tumor.size": "Tumor Size (cm)",
+FEATURE_LABELS = {
+    "Age": "Age (years)",
+    "Tumor.size": "Tumor Size (mm)",
     "Mitotic.rate": "Mitotic Rate (/50 HPF)",
-    "Race.0": "Race: White",
     "Race.1": "Race: Black",
     "Race.2": "Race: Asian/Pacific Islander",
-    "Marital.status.0": "Marital Status: Married",
     "Marital.status.1": "Marital Status: Single/Unmarried",
     "Marital.status.2": "Marital Status: Separated/Divorced/Widowed",
     "Gender": "Gender (Male)",
@@ -97,326 +85,321 @@ BASE_FEATURE_LABELS = {
     "Liver.metastasis": "Liver Metastasis",
 }
 
-RACE_OPTIONS = [
-    "White",
-    "Black",
-    "Asian/Pacific Islander",
-]
-
+RACE_OPTIONS = ["White", "Black", "Asian/Pacific Islander"]
 MARITAL_OPTIONS = [
     "Married",
     "Single / Unmarried",
     "Separated / Divorced / Widowed",
 ]
-
 GENDER_OPTIONS = ["Female", "Male"]
 BINARY_OPTIONS = ["No", "Yes"]
 
 
 def binary_value(label: str) -> int:
-    return 1 if label == "Yes" else 0
+    return int(label == "Yes")
 
 
-def encode_race(label: str) -> dict:
-    if label == "White":
-        return {"Race.0": 1, "Race.1": 0, "Race.2": 0}
-    if label == "Black":
-        return {"Race.0": 0, "Race.1": 1, "Race.2": 0}
-    if label == "Asian/Pacific Islander":
-        return {"Race.0": 0, "Race.1": 0, "Race.2": 1}
-    return {"Race.0": 0, "Race.1": 0, "Race.2": 0}
+def encode_race(label: str) -> dict[str, int]:
+    return {
+        "Race.1": int(label == "Black"),
+        "Race.2": int(label == "Asian/Pacific Islander"),
+    }
 
 
-def encode_marital(label: str) -> dict:
-    if label == "Married":
-        return {"Marital.status.0": 1, "Marital.status.1": 0, "Marital.status.2": 0}
-    if label == "Single / Unmarried":
-        return {"Marital.status.0": 0, "Marital.status.1": 1, "Marital.status.2": 0}
-    if label == "Separated / Divorced / Widowed":
-        return {"Marital.status.0": 0, "Marital.status.1": 0, "Marital.status.2": 1}
-    return {"Marital.status.0": 0, "Marital.status.1": 0, "Marital.status.2": 0}
+def encode_marital(label: str) -> dict[str, int]:
+    return {
+        "Marital.status.1": int(label == "Single / Unmarried"),
+        "Marital.status.2": int(label == "Separated / Divorced / Widowed"),
+    }
 
 
 def load_model_package(model_file: str) -> dict:
-    script_dir = Path(__file__).parent
-    model_path = script_dir / model_file
-
+    model_path = Path(__file__).resolve().parent / model_file
     if not model_path.exists():
-        st.error(f"❌ 找不到模型文件: {model_path}")
-        st.stop()
+        raise FileNotFoundError(f"Model package not found: {model_path.name}")
 
-    with model_path.open("rb") as f:
-        return pickle.load(f)
+    with model_path.open("rb") as handle:
+        package = pickle.load(handle)
+
+    required = {
+        "model",
+        "feature_columns",
+        "shap_background",
+        "risk_score_cutoffs",
+        "input_ranges",
+    }
+    missing = sorted(required.difference(package))
+    if missing:
+        raise KeyError(f"Model package is missing: {', '.join(missing)}")
+    return package
 
 
 @st.cache_resource
-def cached_model_package(model_file: str) -> dict:
-    return load_model_package(model_file)
+def load_model_and_explainer(model_file: str):
+    package = load_model_package(model_file)
+    model = package["model"]
+    background = np.asarray(package["shap_background"], dtype=float)
+    if background.ndim != 2 or background.shape[0] == 0:
+        raise ValueError("The SHAP background sample is unavailable.")
+
+    def predict_risk(values):
+        return np.asarray(model.predict(np.asarray(values, dtype=float)))
+
+    explainer = shap.KernelExplainer(predict_risk, background)
+    return package, explainer
 
 
-@st.cache_resource
-def cached_model_and_explainer(model_file: str):
-    model_pkg = load_model_package(model_file)
-    model = model_pkg["model"]
-    x_train = np.asarray(model_pkg.get("X_train"))
-
-    if x_train.ndim != 2 or len(x_train) == 0:
-        raise ValueError("训练数据为空，无法构建 SHAP 背景样本")
-
-    background_size = min(50, len(x_train))
-    background = shap.sample(x_train, background_size, random_state=42)
-
-    def predict_fn(x):
-        return np.asarray(model.predict(np.asarray(x)))
-
-    explainer = shap.KernelExplainer(predict_fn, background)
-    return model_pkg, explainer
-
-
-def shap_target_from_values(shap_values):
+def extract_shap_vector(shap_values) -> np.ndarray:
     if isinstance(shap_values, list):
-        if len(shap_values) > 1:
-            return shap_values[1][0]
-        return shap_values[0][0]
-
-    if isinstance(shap_values, np.ndarray):
-        if shap_values.ndim == 3:
-            return shap_values[0, :, 1] if shap_values.shape[2] > 1 else shap_values[0, :, 0]
-        if shap_values.ndim == 2:
-            return shap_values[0, :]
-        return shap_values[0]
-
-    return shap_values[0] if hasattr(shap_values, "__getitem__") else shap_values
+        shap_values = shap_values[0]
+    values = np.asarray(shap_values)
+    if values.ndim == 1:
+        return values
+    if values.ndim == 2:
+        return values[0]
+    return values.reshape(values.shape[0], -1)[0]
 
 
-def base_value_from_expected(expected_value):
-    if isinstance(expected_value, (list, np.ndarray)):
-        if len(expected_value) > 1:
-            return expected_value[1]
-        return expected_value[0]
-    return expected_value
+def extract_expected_value(expected_value) -> float:
+    return float(np.asarray(expected_value).reshape(-1)[0])
 
 
 def build_input_row(
-    feature_cols,
+    feature_columns,
     age,
-    tumor_size,
-    mitotic_rate,
+    tumor_size_mm,
+    mitotic_rate_per_50_hpf,
     race_label,
     marital_label,
     gender_label,
     liver_label,
     systemic_label=None,
-):
-    row = {feature: 0 for feature in feature_cols}
+) -> pd.DataFrame:
+    row = {feature: 0.0 for feature in feature_columns}
+    row["Age"] = float(age)
+    row["Tumor.size"] = float(tumor_size_mm)
 
-    if "Age" in row:
-        row["Age"] = age
-    if "Tumor.size" in row:
-        row["Tumor.size"] = tumor_size * 10  # Convert cm to mm
-    if "Mitotic.rate" in row:
-        row["Mitotic.rate"] = mitotic_rate * 10
-    if "Gender" in row:
-        row["Gender"] = 1 if gender_label == "Male" else 0
+    # The SEER-derived modeling field stores 10 times the displayed /50 HPF value.
+    row["Mitotic.rate"] = float(mitotic_rate_per_50_hpf) * 10.0
+    row["Gender"] = float(gender_label == "Male")
 
-    row.update(encode_race(race_label))
-    row.update(encode_marital(marital_label))
+    for feature, value in encode_race(race_label).items():
+        if feature in row:
+            row[feature] = float(value)
+    for feature, value in encode_marital(marital_label).items():
+        if feature in row:
+            row[feature] = float(value)
 
     if "Systemic.treatment" in row and systemic_label is not None:
-        row["Systemic.treatment"] = binary_value(systemic_label)
+        row["Systemic.treatment"] = float(binary_value(systemic_label))
     if "Liver.metastasis" in row:
-        row["Liver.metastasis"] = binary_value(liver_label)
+        row["Liver.metastasis"] = float(binary_value(liver_label))
 
-    return pd.DataFrame([row], columns=feature_cols)
+    return pd.DataFrame([row], columns=feature_columns)
 
 
-selected_model = st.sidebar.radio("Select Model", list(MODEL_CONFIGS.keys()))
-config = MODEL_CONFIGS[selected_model]
-model_pkg, explainer = cached_model_and_explainer(config["file"])
-model = model_pkg["model"]
-feature_cols = list(model_pkg["feature_cols"])
-X_train = model_pkg.get("X_train")
-cohort = model_pkg.get("cohort", selected_model)
+def build_display_row(model_input: pd.DataFrame) -> pd.DataFrame:
+    display = model_input.copy()
+    if "Mitotic.rate" in display.columns:
+        display["Mitotic.rate"] = display["Mitotic.rate"] / 10.0
+    return display
 
-feature_labels = {feature: BASE_FEATURE_LABELS.get(feature, feature) for feature in feature_cols}
-shap_feature_names = [feature_labels[feature] for feature in feature_cols]
+
+def survival_probability_at(model, input_array: np.ndarray, month: float) -> float:
+    survival_function = model.predict_survival_function(input_array)[0]
+    return float(survival_function(month))
+
+
+def clipped_default(value: float, lower: float, upper: float) -> float:
+    return float(min(max(value, lower), upper))
+
+
+selected_cohort = st.sidebar.radio("Model", list(MODEL_CONFIGS))
+config = MODEL_CONFIGS[selected_cohort]
+
+try:
+    model_package, explainer = load_model_and_explainer(config["file"])
+except Exception as error:
+    st.error(f"Model loading failed: {error}")
+    st.stop()
+
+model = model_package["model"]
+feature_columns = list(model_package["feature_columns"])
+input_ranges = model_package["input_ranges"]
+risk_cutoffs = model_package["risk_score_cutoffs"]
+feature_names = [FEATURE_LABELS.get(feature, feature) for feature in feature_columns]
+
+age_min, age_max = [int(round(value)) for value in input_ranges["Age"]]
+tumor_min, tumor_max = input_ranges["Tumor.size"]
+mitotic_min, mitotic_max = input_ranges["Mitotic.rate_display"]
 
 st.markdown(f'<div class="main-header">{config["title"]}</div>', unsafe_allow_html=True)
 st.markdown(f'<div class="sub-header">{config["description"]}</div>', unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown("---")
-    st.header("📋 Patient Clinical Feature Input")
+    st.header("Patient Characteristics")
+    st.caption("Input ranges correspond to the model development cohort.")
+
     with st.form("patient_data_form"):
         key_prefix = config["key_prefix"]
-        age = st.number_input("Age (years)", min_value=0, max_value=120, value=60, step=1, key=f"{key_prefix}_age")
-        tumor_size = st.number_input("Tumor Size (cm)", min_value=0.0, max_value=50.0, value=3.0, step=0.1, key=f"{key_prefix}_tumor")
-        mitotic_rate = st.number_input("Mitotic Rate (/50 HPF)", min_value=0.0, max_value=100.0, value=5.0, step=0.1, key=f"{key_prefix}_mitotic")
-
-        race_label = st.selectbox("Race", options=RACE_OPTIONS, key=f"{key_prefix}_race")
-        marital_label = st.selectbox("Marital Status", options=MARITAL_OPTIONS, key=f"{key_prefix}_marital")
+        age = st.number_input(
+            "Age (years)",
+            min_value=age_min,
+            max_value=age_max,
+            value=int(round(clipped_default(60, age_min, age_max))),
+            step=1,
+            key=f"{key_prefix}_age",
+        )
+        tumor_size = st.number_input(
+            "Tumor Size (mm)",
+            min_value=float(tumor_min),
+            max_value=float(tumor_max),
+            value=clipped_default(50.0, tumor_min, tumor_max),
+            step=1.0,
+            key=f"{key_prefix}_tumor",
+        )
+        mitotic_rate = st.number_input(
+            "Mitotic Rate (/50 HPF)",
+            min_value=float(mitotic_min),
+            max_value=float(mitotic_max),
+            value=clipped_default(5.0, mitotic_min, mitotic_max),
+            step=0.1,
+            key=f"{key_prefix}_mitotic",
+        )
+        race_label = st.selectbox("Race", RACE_OPTIONS, key=f"{key_prefix}_race")
+        marital_label = st.selectbox(
+            "Marital Status", MARITAL_OPTIONS, key=f"{key_prefix}_marital"
+        )
 
         col_a, col_b = st.columns(2)
         with col_a:
-            gender_label = st.selectbox("Gender", options=GENDER_OPTIONS, index=1, key=f"{key_prefix}_gender")
+            gender_label = st.selectbox(
+                "Gender", GENDER_OPTIONS, key=f"{key_prefix}_gender"
+            )
         with col_b:
-            liver_label = st.selectbox("Liver Metastasis", options=BINARY_OPTIONS, key=f"{key_prefix}_liver")
+            liver_label = st.selectbox(
+                "Liver Metastasis", BINARY_OPTIONS, key=f"{key_prefix}_liver"
+            )
 
         systemic_label = None
-        if "Systemic.treatment" in feature_cols:
-            systemic_label = st.selectbox("Systemic Treatment", options=BINARY_OPTIONS, key=f"{key_prefix}_systemic")
+        if "Systemic.treatment" in feature_columns:
+            systemic_label = st.selectbox(
+                "Systemic Treatment", BINARY_OPTIONS, key=f"{key_prefix}_systemic"
+            )
 
-        submit_button = st.form_submit_button("🔍 Start Prediction", type="primary")
+        submitted = st.form_submit_button("Calculate", type="primary")
 
 
-col1, col2 = st.columns([1, 1.25])
+result_column, explanation_column = st.columns([1, 1.25])
 
-if submit_button:
+if submitted:
     input_df = build_input_row(
-        feature_cols=feature_cols,
+        feature_columns=feature_columns,
         age=age,
-        tumor_size=tumor_size,
-        mitotic_rate=mitotic_rate,
+        tumor_size_mm=tumor_size,
+        mitotic_rate_per_50_hpf=mitotic_rate,
         race_label=race_label,
         marital_label=marital_label,
         gender_label=gender_label,
         liver_label=liver_label,
         systemic_label=systemic_label,
     )
-    input_array = input_df.to_numpy()
+    display_df = build_display_row(input_df)
+    input_array = input_df.to_numpy(dtype=float)
 
-    with col1:
-        st.subheader("📊 Risk Prediction Results")
+    with result_column:
+        st.subheader("Prediction Results")
         try:
             risk_score = float(np.asarray(model.predict(input_array))[0])
-            train_scores = np.asarray(model.predict(X_train)) if X_train is not None else np.asarray([risk_score])
-            risk_percentile = float((train_scores <= risk_score).mean() * 100.0)
+            lower_cutoff = float(risk_cutoffs["lower_to_intermediate"])
+            upper_cutoff = float(risk_cutoffs["intermediate_to_higher"])
 
-            if risk_percentile < 33:
-                level, css, emoji = "Low Risk", "low-risk", "🟢"
-                advice = "相对风险较低，可按常规随访节奏监测。<br><small style='color: #666;'>Relatively low risk. Follow-up monitoring at routine intervals is recommended.</small>"
-            elif risk_percentile < 66:
-                level, css, emoji = "Medium Risk", "medium-risk", "🟡"
-                advice = "属于中等相对风险，建议缩短复查间隔并加强监测。<br><small style='color: #666;'>Moderate relative risk. Recommend shortening follow-up intervals and intensifying monitoring.</small>"
+            if risk_score < lower_cutoff:
+                risk_level = "Lower"
+                css_class = "lower-risk"
+                group_text = "Lower third of training-cohort risk scores"
+            elif risk_score < upper_cutoff:
+                risk_level = "Intermediate"
+                css_class = "intermediate-risk"
+                group_text = "Middle third of training-cohort risk scores"
             else:
-                level, css, emoji = "High Risk", "high-risk", "🔴"
-                advice = "相对风险较高，建议进一步密切随访并结合临床综合判断。<br><small style='color: #666;'>Relatively high risk. Close follow-up monitoring and comprehensive clinical judgment are recommended.</small>"
+                risk_level = "Higher"
+                css_class = "higher-risk"
+                group_text = "Upper third of training-cohort risk scores"
 
-            # 生存时间预测
-            survival_info = ""
-            try:
-                surv_func = model.predict_survival_function(input_array)
-                times = surv_func[0].x
-                probs = surv_func[0].y
-                
-                # 1年（12个月）生存概率
-                one_year_prob = None
-                for t, p in zip(times, probs):
-                    if t >= 12:
-                        one_year_prob = p
-                        break
-                
-                # 3年（36个月）生存概率
-                three_year_prob = None
-                for t, p in zip(times, probs):
-                    if t >= 36:
-                        three_year_prob = p
-                        break
-                
-                # 5年（60个月）生存概率
-                five_year_prob = None
-                for t, p in zip(times, probs):
-                    if t >= 60:
-                        five_year_prob = p
-                        break
-                
-                # 中位生存时间
-                median_survival = None
-                for t, p in zip(times, probs):
-                    if p <= 0.5:
-                        median_survival = t
-                        break
-                
-                if one_year_prob is not None:
-                    survival_info += f"<p style='margin-top:10px; font-size:0.98rem; color: #334155;'>1-Year Survival Rate: {one_year_prob*100:.1f}%</p>"
-                
-                if three_year_prob is not None:
-                    survival_info += f"<p style='font-size:0.98rem; color: #334155;'>3-Year Survival Rate: {three_year_prob*100:.1f}%</p>"
-                
-                if five_year_prob is not None:
-                    survival_info += f"<p style='font-size:0.98rem; color: #334155;'>5-Year Survival Rate: {five_year_prob*100:.1f}%</p>"
-                
-                if median_survival is not None:
-                    survival_info += f"<p style='font-size:0.98rem; color: #334155;'>⏱️ Median Survival: {median_survival:.1f} months</p>"
-            except Exception as surv_error:
-                survival_info = ""
+            probabilities = {
+                "1-Year Overall Survival": survival_probability_at(model, input_array, 12.0),
+                "3-Year Overall Survival": survival_probability_at(model, input_array, 36.0),
+                "5-Year Overall Survival": survival_probability_at(model, input_array, 60.0),
+            }
+            survival_html = "".join(
+                f"<p style='font-size:1rem; color:#334155;'>{label}: {value * 100:.1f}%</p>"
+                for label, value in probabilities.items()
+            )
 
             st.markdown(
                 f"""
-                <div class="prediction-box {css}">
-                    <h2 style="color: black; margin-bottom: 0.5rem;">{emoji} Risk Score: {risk_score:.4f}</h2>
-                    <h3 style="color: black; margin-bottom: 0.4rem;">Relative Risk Level: {level}</h3>
-                    <p style="margin-top:10px; font-size:1.02rem; color: black;">{advice}</p>
-                    {survival_info}
+                <div class="prediction-box {css_class}">
+                    <h2 style="color:black; margin-bottom:0.5rem;">Risk Score: {risk_score:.3f}</h2>
+                    <h3 style="color:black; margin-bottom:0.4rem;">Relative Risk Group: {risk_level}</h3>
+                    <p style="font-size:1rem; color:#334155;">{group_text}</p>
+                    {survival_html}
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
 
-            with st.expander("View Encoded Input Data"):
-                st.dataframe(input_df.rename(columns=feature_labels), hide_index=True, use_container_width=True)
+            with st.expander("Encoded Model Input"):
+                st.dataframe(
+                    display_df.rename(columns=FEATURE_LABELS),
+                    hide_index=True,
+                    use_container_width=True,
+                )
+        except Exception as error:
+            st.error(f"Prediction failed: {error}")
 
-        except Exception as e:
-            st.error(f"Prediction error: {e}")
-
-    with col2:
-        st.subheader("🔥 Feature Attribution Analysis (SHAP)")
+    with explanation_column:
+        st.subheader("Feature Attribution")
         try:
-            with st.spinner("Calculating feature contributions..."):
-                shap_values = explainer.shap_values(input_array, nsamples=150)
-                shap_target = shap_target_from_values(shap_values)
-                expected_value = base_value_from_expected(explainer.expected_value)
+            with st.spinner("Calculating feature contributions"):
+                shap_values = explainer.shap_values(input_array, nsamples=200)
+                shap_vector = extract_shap_vector(shap_values)
+                expected_value = extract_expected_value(explainer.expected_value)
 
                 try:
-                    shap_html = shap.force_plot(
+                    force_plot = shap.force_plot(
                         expected_value,
-                        shap_target,
-                        input_df.iloc[0],
-                        feature_names=shap_feature_names,
+                        shap_vector,
+                        display_df.iloc[0].to_numpy(dtype=float),
+                        feature_names=feature_names,
                         matplotlib=False,
                     )
-                    components.html(shap.getjs() + shap_html.html(), height=360, scrolling=True)
+                    components.html(
+                        shap.getjs() + force_plot.html(),
+                        height=330,
+                        scrolling=True,
+                    )
                 except Exception:
-                    shap_df = pd.DataFrame(
-                        {
-                            "Feature": shap_feature_names,
-                            "SHAP Value": shap_target,
-                        }
-                    ).sort_values("SHAP Value", key=abs, ascending=False).head(10)
+                    attribution = pd.DataFrame(
+                        {"Feature": feature_names, "SHAP Value": shap_vector}
+                    )
+                    attribution = attribution.reindex(
+                        attribution["SHAP Value"].abs().sort_values(ascending=False).index
+                    ).head(10)
+                    st.warning("Force plot unavailable; feature contributions are shown below.")
+                    st.bar_chart(attribution.set_index("Feature")["SHAP Value"])
 
-                    st.warning("Force plot rendering failed, showing bar chart fallback.")
-                    st.bar_chart(shap_df.set_index("Feature")["SHAP Value"])
-
-                st.info(
-                    """
-                    **Interpretation**
-                    - Red bars: factors pushing the risk score upward.
-                    - Blue bars: factors pushing the risk score downward.
-                    - The relative length reflects influence strength.
-                    """
+                st.markdown(
+                    "Positive SHAP values increase the model risk score; negative values decrease it. "
+                    "The absolute value represents the magnitude of the contribution."
                 )
-
-        except Exception as e:
-            st.error(f"SHAP analysis failed: {e}")
-
-else:
-    with col1:
-        st.write("")
-        st.write("")
+        except Exception as error:
+            st.error(f"Feature attribution failed: {error}")
 
 
 st.markdown("---")
 st.markdown(
-    "<div style='text-align: center; color: #667085;'>Powered by Streamlit + scikit-survival + SHAP</div>",
+    "<div style='text-align:center; color:#667085;'>Random survival forest model with SHAP interpretation</div>",
     unsafe_allow_html=True,
 )

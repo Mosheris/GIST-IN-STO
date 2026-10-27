@@ -1,9 +1,7 @@
-streamlit
-scikit-learn>=1.5.0
-shap>=0.44.1
+streamlit==1.55.0
+scikit-survival==0.27.0
+scikit-learn==1.8.0
+shap==0.44.1
 matplotlib
-pandas
-numpy>=1.26.0
-joblib
-openpyxl
-scikit-survival
+pandas==2.3.3
+numpy==1.26.4
